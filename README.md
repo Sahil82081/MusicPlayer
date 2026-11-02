@@ -38,3 +38,4 @@ A premium, production-quality offline music player for Android and iOS built wit
    ```bash
    npx eas-cli build -p android --profile preview
    ```
+

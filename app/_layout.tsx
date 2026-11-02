@@ -7,9 +7,11 @@ import 'react-native-reanimated';
 
 // Ignore development sandbox logs for features that require standalone/custom native builds
 LogBox.ignoreLogs([
+  'Failed to start the expo-audio playback service',
   'Failed to activate lock screen controls',
   'service binding failed',
   'expo-audio config plugin',
+  'enableBackgroundPlayback',
 ]);
 
 import { PlayerProvider } from '@/context/PlayerContext';

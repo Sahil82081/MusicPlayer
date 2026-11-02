@@ -6,11 +6,16 @@ import {
   AudioPlayer,
   AudioStatus,
 } from 'expo-audio';
+import Constants, { ExecutionEnvironment } from 'expo-constants';
 import * as FileSystem from 'expo-file-system/legacy';
 import { Asset } from 'expo-asset';
 import { AudioTrack, IAudioPlaybackService, PlaybackState, RepeatMode } from './types';
 import { MOCK_TRACKS } from '../library/mockData';
 import { DatabaseService } from '../database/DatabaseService';
+
+const isExpoGo =
+  Constants.executionEnvironment === ExecutionEnvironment.StoreClient ||
+  (Constants as any).appOwnership === 'expo';
 
 class RealAudioPlaybackService implements IAudioPlaybackService {
   private player: AudioPlayer | null = null;
@@ -91,13 +96,18 @@ class RealAudioPlaybackService implements IAudioPlaybackService {
     if (this.isConfigured) return;
 
     try {
+      // In the generic Expo Go client on Android, starting the custom background service fails
+      // because Expo Go's prebuilt APK does not register the project's AudioPlaybackService.
+      // Standalone APK and EAS builds have the native service and enable background audio.
+      const shouldEnableBackground = !isExpoGo || Platform.OS === 'ios';
+
       await setAudioModeAsync({
         playsInSilentMode: true,
-        shouldPlayInBackground: true,
+        shouldPlayInBackground: shouldEnableBackground,
         interruptionMode: 'doNotMix',
       });
 
-      if (Platform.OS === 'android') {
+      if (Platform.OS === 'android' && !isExpoGo) {
         try {
           await requestNotificationPermissionsAsync();
         } catch (_) {
@@ -266,29 +276,30 @@ class RealAudioPlaybackService implements IAudioPlaybackService {
       this.player.loop = this.state.repeatMode === 'one';
 
       // 5. Connect Native Lock Screen Controls and Media Notification
-      // On Android: starts foreground service with MediaSession notification
-      // On iOS: configures MPNowPlayingInfoCenter and MPRemoteCommandCenter
-      try {
-        this.player.setActiveForLockScreen(
-          true,
-          {
-            title: track.title,
-            artist: track.artist,
-            albumTitle: track.album,
-            artworkUrl: track.artworkUrl || undefined,
-          },
-          {
-            showNextTrack: true,
-            showPreviousTrack: true,
-            showSeekForward: true,
-            showSeekBackward: true,
-            seekForwardIntervalSeconds: 10,
-            seekBackwardIntervalSeconds: 10,
-          }
-        );
-      } catch (lockScreenErr) {
-        // In Expo Go sandbox, the custom AudioControlsService is not pre-bound.
-        // Standalone APK and development builds bind cleanly to the native foreground service.
+      // In Expo Go, skip calling setActiveForLockScreen because the native service cannot bind
+      // In standalone APK and EAS builds, it binds to Android's AudioControlsService / iOS MPRemoteCommandCenter
+      if (!isExpoGo) {
+        try {
+          this.player.setActiveForLockScreen(
+            true,
+            {
+              title: track.title,
+              artist: track.artist,
+              albumTitle: track.album,
+              artworkUrl: track.artworkUrl || undefined,
+            },
+            {
+              showNextTrack: true,
+              showPreviousTrack: true,
+              showSeekForward: true,
+              showSeekBackward: true,
+              seekForwardIntervalSeconds: 10,
+              seekBackwardIntervalSeconds: 10,
+            }
+          );
+        } catch (lockScreenErr) {
+          // Handled gracefully
+        }
       }
 
       // 6. Listen to native status updates (handles play, pause, seek, finish, and remote commands)
