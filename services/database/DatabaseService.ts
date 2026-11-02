@@ -1103,6 +1103,24 @@ class LocalDatabaseManager {
     return newTracks.length;
   }
 
+  updateTrackUri(trackId: string, newUri: string): void {
+    this.initDatabase();
+    this.invalidateCache();
+
+    if (this.db) {
+      try {
+        this.db.runSync('UPDATE tracks SET file_uri = ? WHERE id = ?;', [newUri, trackId]);
+      } catch (err) {
+        console.warn('SQLite updateTrackUri error:', err);
+      }
+    }
+
+    const memTrack = this.memoryTracks.find((t) => t.id === trackId);
+    if (memTrack) {
+      memTrack.fileUri = newUri;
+    }
+  }
+
   // ==================== RESET ====================
 
   clearAllData(): void {

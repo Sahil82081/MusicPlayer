@@ -194,9 +194,30 @@ class RealAudioPlaybackService implements IAudioPlaybackService {
     // Check if the physical file exists on local storage
     try {
       if (uri.startsWith('content://')) {
-        // Android content:// URIs are streamed directly by Android MediaStore
-        return uri;
+        try {
+          const destDir = `${FileSystem.documentDirectory}AuraMusic/`;
+          const dirInfo = await FileSystem.getInfoAsync(destDir);
+          if (!dirInfo.exists) {
+            await FileSystem.makeDirectoryAsync(destDir, { intermediates: true });
+          }
+          const ext = (track.formatInfo?.format || 'mp3').toLowerCase();
+          const cleanName = `${(track.title || 'track').replace(/[^a-zA-Z0-9._-]/g, '_')}.${ext}`;
+          const localDest = `${destDir}${cleanName}`;
+          const existingDest = await FileSystem.getInfoAsync(localDest);
+          if (!existingDest.exists || !existingDest.size) {
+            await FileSystem.copyAsync({ from: uri, to: localDest });
+          }
+          try {
+            DatabaseService.updateTrackUri(track.id, localDest);
+            track.fileUri = localDest;
+          } catch (_) {}
+          return localDest;
+        } catch (copyErr) {
+          console.warn('[AuraAudioEngine] Failed to cache content URI locally, trying direct:', copyErr);
+          return uri;
+        }
       }
+
       const fileInfo = await FileSystem.getInfoAsync(uri);
       if (fileInfo.exists) {
         return uri;
@@ -461,12 +482,12 @@ class RealAudioPlaybackService implements IAudioPlaybackService {
       return;
     }
 
-    if (this.player) {
+    if (this.player && this.player.isLoaded) {
       this.player.play();
       this.state.status = 'playing';
       this.notify();
     } else {
-      // Resume from restored offline session with previous track position
+      // Re-create player with properly resolved offline file URI
       await this.playTrack(this.state.currentTrack, undefined, this.state.positionMs);
     }
   }

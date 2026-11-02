@@ -1,6 +1,7 @@
 import { Platform } from 'react-native';
 import * as MediaLibrary from 'expo-media-library/legacy';
 import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system/legacy';
 import {
   IPlatformMusicAdapter,
   ImportResult,
@@ -147,7 +148,7 @@ export class AndroidMusicAdapter implements IPlatformMusicAdapter {
           'audio/ogg',
         ],
         multiple: true,
-        copyToCacheDirectory: false,
+        copyToCacheDirectory: true,
       });
 
       if (result.canceled || !result.assets || result.assets.length === 0) {
@@ -159,26 +160,55 @@ export class AndroidMusicAdapter implements IPlatformMusicAdapter {
         };
       }
 
+      const destDir = `${FileSystem.documentDirectory}AuraMusic/`;
+      const dirInfo = await FileSystem.getInfoAsync(destDir);
+      if (!dirInfo.exists) {
+        await FileSystem.makeDirectoryAsync(destDir, { intermediates: true });
+      }
+
       const importedTracks: AudioTrack[] = [];
       const filePaths: string[] = [];
 
       for (const file of result.assets) {
         if (!isSupportedAudioFile(file.name)) continue;
 
-        const track = parseAudioFileToTrack({
-          uri: file.uri,
-          filename: file.name,
-          sizeBytes: file.size,
-          folderName: 'Imported',
-          folderPath: '/storage/emulated/0/Music/Imported',
-        });
+        const cleanFilename = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+        const destinationUri = `${destDir}${cleanFilename}`;
 
-        importedTracks.push(track);
-        filePaths.push(file.uri);
+        try {
+          await FileSystem.copyAsync({
+            from: file.uri,
+            to: destinationUri,
+          });
+
+          const fileInfo = await FileSystem.getInfoAsync(destinationUri);
+
+          const track = parseAudioFileToTrack({
+            uri: destinationUri,
+            filename: file.name,
+            sizeBytes: fileInfo.exists ? fileInfo.size : file.size,
+            folderName: 'Imported',
+            folderPath: destDir,
+          });
+
+          importedTracks.push(track);
+          filePaths.push(destinationUri);
+        } catch (copyErr) {
+          console.warn('Failed to copy imported track:', copyErr);
+          const track = parseAudioFileToTrack({
+            uri: file.uri,
+            filename: file.name,
+            sizeBytes: file.size,
+            folderName: 'Imported',
+            folderPath: destDir,
+          });
+          importedTracks.push(track);
+          filePaths.push(file.uri);
+        }
       }
 
       if (importedTracks.length > 0) {
-        DatabaseService.saveTracksBatch(importedTracks, '/storage/emulated/0/Music/Imported', 'Imported');
+        DatabaseService.saveTracksBatch(importedTracks, destDir, 'Imported');
       }
 
       return {
