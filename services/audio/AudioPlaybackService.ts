@@ -184,36 +184,65 @@ class RealAudioPlaybackService implements IAudioPlaybackService {
   }
 
   private async resolvePlayableUri(track: AudioTrack): Promise<string> {
-    const uri = track.fileUri;
+    let uri = track.fileUri;
 
     // If URI is empty or is a simulated mock path, fallback to bundled offline WAV
     if (!uri || uri.startsWith('file:///offline/storage/')) {
       return this.getDemoAssetUri();
     }
 
-    // Check if the physical file exists on local storage
+    // 1. If it's a content:// URI from Android Storage Access Framework (SAF),
+    // convert it to the real physical file:///storage/emulated/0/... path
+    if (uri.startsWith('content://')) {
+      try {
+        const decoded = decodeURIComponent(uri);
+        if (decoded.includes('document/primary:')) {
+          const relPath = decoded.split('document/primary:')[1];
+          if (relPath) {
+            uri = `file:///storage/emulated/0/${relPath}`;
+            try {
+              DatabaseService.updateTrackUri(track.id, uri);
+              track.fileUri = uri;
+            } catch (_) {}
+          }
+        } else if (decoded.includes('document/raw:')) {
+          const rawPath = decoded.split('document/raw:')[1];
+          if (rawPath) {
+            uri = rawPath.startsWith('file://') ? rawPath : `file://${rawPath}`;
+            try {
+              DatabaseService.updateTrackUri(track.id, uri);
+              track.fileUri = uri;
+            } catch (_) {}
+          }
+        }
+      } catch (_) {}
+    }
+
+    // 2. Cache file to app's dedicated internal storage if available
     try {
-      if (uri.startsWith('content://')) {
+      if (uri.startsWith('file:///')) {
+        const destDir = `${FileSystem.documentDirectory}AuraMusic/`;
+        const dirInfo = await FileSystem.getInfoAsync(destDir);
+        if (!dirInfo.exists) {
+          await FileSystem.makeDirectoryAsync(destDir, { intermediates: true });
+        }
+        const ext = (track.formatInfo?.format || 'mp3').toLowerCase();
+        const cleanName = `${(track.title || 'track').replace(/[^a-zA-Z0-9._-]/g, '_')}.${ext}`;
+        const localDest = `${destDir}${cleanName}`;
+        const existingDest = await FileSystem.getInfoAsync(localDest);
+        if (existingDest.exists && existingDest.size && existingDest.size > 0) {
+          return localDest;
+        }
+
         try {
-          const destDir = `${FileSystem.documentDirectory}AuraMusic/`;
-          const dirInfo = await FileSystem.getInfoAsync(destDir);
-          if (!dirInfo.exists) {
-            await FileSystem.makeDirectoryAsync(destDir, { intermediates: true });
-          }
-          const ext = (track.formatInfo?.format || 'mp3').toLowerCase();
-          const cleanName = `${(track.title || 'track').replace(/[^a-zA-Z0-9._-]/g, '_')}.${ext}`;
-          const localDest = `${destDir}${cleanName}`;
-          const existingDest = await FileSystem.getInfoAsync(localDest);
-          if (!existingDest.exists || !existingDest.size) {
-            await FileSystem.copyAsync({ from: uri, to: localDest });
-          }
+          await FileSystem.copyAsync({ from: uri, to: localDest });
           try {
             DatabaseService.updateTrackUri(track.id, localDest);
             track.fileUri = localDest;
           } catch (_) {}
           return localDest;
-        } catch (copyErr) {
-          console.warn('[AuraAudioEngine] Failed to cache content URI locally, trying direct:', copyErr);
+        } catch (_) {
+          // If copying is restricted by Android OS, return the direct file URI
           return uri;
         }
       }
@@ -226,7 +255,7 @@ class RealAudioPlaybackService implements IAudioPlaybackService {
       // Graceful fallback on path or permission check error
     }
 
-    return this.getDemoAssetUri();
+    return uri || this.getDemoAssetUri();
   }
 
   getState(): PlaybackState {
