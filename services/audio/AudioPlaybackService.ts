@@ -14,8 +14,14 @@ import { MOCK_TRACKS } from '../library/mockData';
 import { DatabaseService } from '../database/DatabaseService';
 
 const isExpoGo =
-  Constants.executionEnvironment === ExecutionEnvironment.StoreClient ||
-  (Constants as any).appOwnership === 'expo';
+  Boolean((Constants as any).expoGoConfig) ||
+  (Constants as any).appOwnership === 'expo' ||
+  Constants.executionEnvironment === 'storeClient' ||
+  (Constants as any).executionEnvironment === ExecutionEnvironment.StoreClient ||
+  Boolean(Constants.experienceUrl && Constants.experienceUrl.startsWith('exp://')) ||
+  __DEV__;
+
+const canUseLockScreenControls = Platform.OS === 'ios' ? true : !isExpoGo;
 
 class RealAudioPlaybackService implements IAudioPlaybackService {
   private player: AudioPlayer | null = null;
@@ -99,7 +105,7 @@ class RealAudioPlaybackService implements IAudioPlaybackService {
       // In the generic Expo Go client on Android, starting the custom background service fails
       // because Expo Go's prebuilt APK does not register the project's AudioPlaybackService.
       // Standalone APK and EAS builds have the native service and enable background audio.
-      const shouldEnableBackground = !isExpoGo || Platform.OS === 'ios';
+      const shouldEnableBackground = canUseLockScreenControls;
 
       await setAudioModeAsync({
         playsInSilentMode: true,
@@ -107,7 +113,7 @@ class RealAudioPlaybackService implements IAudioPlaybackService {
         interruptionMode: 'doNotMix',
       });
 
-      if (Platform.OS === 'android' && !isExpoGo) {
+      if (Platform.OS === 'android' && canUseLockScreenControls) {
         try {
           await requestNotificationPermissionsAsync();
         } catch (_) {
@@ -278,7 +284,7 @@ class RealAudioPlaybackService implements IAudioPlaybackService {
       // 5. Connect Native Lock Screen Controls and Media Notification
       // In Expo Go, skip calling setActiveForLockScreen because the native service cannot bind
       // In standalone APK and EAS builds, it binds to Android's AudioControlsService / iOS MPRemoteCommandCenter
-      if (!isExpoGo) {
+      if (canUseLockScreenControls) {
         try {
           this.player.setActiveForLockScreen(
             true,

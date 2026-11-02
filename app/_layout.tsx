@@ -7,12 +7,26 @@ import 'react-native-reanimated';
 
 // Ignore development sandbox logs for features that require standalone/custom native builds
 LogBox.ignoreLogs([
-  'Failed to start the expo-audio playback service',
-  'Failed to activate lock screen controls',
-  'service binding failed',
-  'expo-audio config plugin',
-  'enableBackgroundPlayback',
+  /Failed to start the expo-audio playback service/i,
+  /Failed to activate lock screen controls/i,
+  /service binding failed/i,
+  /expo-audio config plugin/i,
+  /enableBackgroundPlayback/i,
 ]);
+
+// Intercept native JS logger error popups in Expo Go
+const origConsoleError = console.error;
+console.error = (...args: any[]) => {
+  const str = String(args[0] || '');
+  if (
+    str.includes('Failed to activate lock screen controls') ||
+    str.includes('Failed to start the expo-audio playback service') ||
+    str.includes('service binding failed')
+  ) {
+    return;
+  }
+  origConsoleError(...args);
+};
 
 import { PlayerProvider } from '@/context/PlayerContext';
 import { LibraryProvider } from '@/context/LibraryContext';

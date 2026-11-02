@@ -9,6 +9,8 @@ import {
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 
+const AnimatedPressableComponent = Animated.createAnimatedComponent(Pressable);
+
 export interface AnimatedPressableProps extends Omit<PressableProps, 'style'> {
   style?: StyleProp<ViewStyle>;
   scaleTo?: number;
@@ -87,25 +89,22 @@ export const AnimatedPressable: React.FC<AnimatedPressableProps> = ({
   };
 
   return (
-    <Pressable
+    <AnimatedPressableComponent
       onPressIn={handlePressIn}
       onPressOut={handlePressOut}
       onPress={handlePress}
       disabled={disabled}
+      style={[
+        style,
+        {
+          transform: [{ scale: scaleAnim }],
+          opacity: disabled ? 0.45 : opacityAnim,
+        },
+      ]}
       {...props}
     >
-      <Animated.View
-        style={[
-          style,
-          {
-            transform: [{ scale: scaleAnim }],
-            opacity: disabled ? 0.45 : opacityAnim,
-          },
-        ]}
-      >
-        {children}
-      </Animated.View>
-    </Pressable>
+      {children}
+    </AnimatedPressableComponent>
   );
 };
 
